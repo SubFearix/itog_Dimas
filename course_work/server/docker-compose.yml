@@ -1,0 +1,14 @@
+services:
+  password_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: password_manager_server
+    ports:
+      - "8080:8080"
+    volumes:
+      # Монтируем директорию для хранения данных пользователей
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Moscow

@@ -1,0 +1,615 @@
+#include "mainwindow.h"
+#include "common_utils.h"
+#include <QApplication>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QMessageBox>
+#include <QGroupBox>
+#include <QScrollArea>
+#include <QTimer>
+#include <sodium.h>
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), loginAttempts(0)
+{
+    client = new Client("127.0.0.1", 8080);
+    setupUI();
+    showMainMenu();
+}
+
+MainWindow::~MainWindow()
+{
+    delete client;
+}
+
+void MainWindow::setupUI()
+{
+    setWindowTitle("Менеджер паролей");
+    setMinimumSize(600, 500);
+    
+    stackedWidget = new QStackedWidget(this);
+    setCentralWidget(stackedWidget);
+    
+    createMainMenuPage();
+    createRegisterPage();
+    createLoginPage();
+    createPasswordEvalPage();
+    createRecoveryPage();
+    createUserMenuPage();
+}
+
+void MainWindow::createMainMenuPage()
+{
+    mainMenuPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(mainMenuPage);
+    layout->setSpacing(20);
+    layout->setContentsMargins(50, 50, 50, 50);
+    
+    QLabel* titleLabel = new QLabel("Менеджер паролей");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(24);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    
+    QPushButton* registerBtn = new QPushButton("Регистрация");
+    QPushButton* loginBtn = new QPushButton("Вход");
+    QPushButton* recoverBtn = new QPushButton("Восстановить пароль");
+    QPushButton* evalBtn = new QPushButton("Оценить сложность пароля");
+    QPushButton* exitBtn = new QPushButton("Выход");
+    
+    // Style buttons
+    QString btnStyle = "QPushButton { padding: 15px; font-size: 14px; }";
+    registerBtn->setStyleSheet(btnStyle);
+    loginBtn->setStyleSheet(btnStyle);
+    recoverBtn->setStyleSheet(btnStyle);
+    evalBtn->setStyleSheet(btnStyle);
+    exitBtn->setStyleSheet(btnStyle);
+    
+    connect(registerBtn, &QPushButton::clicked, this, &MainWindow::onRegisterClicked);
+    connect(loginBtn, &QPushButton::clicked, this, &MainWindow::onLoginClicked);
+    connect(recoverBtn, &QPushButton::clicked, this, &MainWindow::onRecoverPasswordClicked);
+    connect(evalBtn, &QPushButton::clicked, this, &MainWindow::onPasswordEvalClicked);
+    connect(exitBtn, &QPushButton::clicked, this, &QApplication::quit);
+    
+    layout->addStretch();
+    layout->addWidget(titleLabel);
+    layout->addSpacing(30);
+    layout->addWidget(registerBtn);
+    layout->addWidget(loginBtn);
+    layout->addWidget(recoverBtn);
+    layout->addWidget(evalBtn);
+    layout->addWidget(exitBtn);
+    layout->addStretch();
+    
+    stackedWidget->addWidget(mainMenuPage);
+}
+
+void MainWindow::createRegisterPage()
+{
+    registerPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(registerPage);
+    layout->setContentsMargins(50, 30, 50, 30);
+    
+    QLabel* titleLabel = new QLabel("Регистрация");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(18);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    
+    QLabel* usernameLabel = new QLabel("Логин:");
+    regUsernameEdit = new QLineEdit();
+    
+    QLabel* passwordLabel = new QLabel("Пароль:");
+    regPasswordEdit = new QLineEdit();
+    regPasswordEdit->setEchoMode(QLineEdit::Password);
+    
+    regResultText = new QTextEdit();
+    regResultText->setReadOnly(true);
+    regResultText->setMaximumHeight(150);
+    
+    QPushButton* submitBtn = new QPushButton("Зарегистрироваться");
+    QPushButton* backBtn = new QPushButton("Назад");
+    
+    connect(submitBtn, &QPushButton::clicked, this, &MainWindow::onRegisterSubmitClicked);
+    connect(backBtn, &QPushButton::clicked, this, &MainWindow::onRegisterBackClicked);
+    
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(backBtn);
+    btnLayout->addWidget(submitBtn);
+    
+    layout->addWidget(titleLabel);
+    layout->addSpacing(20);
+    layout->addWidget(usernameLabel);
+    layout->addWidget(regUsernameEdit);
+    layout->addWidget(passwordLabel);
+    layout->addWidget(regPasswordEdit);
+    layout->addSpacing(10);
+    layout->addWidget(regResultText);
+    layout->addSpacing(10);
+    layout->addLayout(btnLayout);
+    layout->addStretch();
+    
+    stackedWidget->addWidget(registerPage);
+}
+
+void MainWindow::createLoginPage()
+{
+    loginPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(loginPage);
+    layout->setContentsMargins(50, 30, 50, 30);
+    
+    QLabel* titleLabel = new QLabel("Вход");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(18);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    
+    QLabel* usernameLabel = new QLabel("Логин:");
+    loginUsernameEdit = new QLineEdit();
+    
+    QLabel* passwordLabel = new QLabel("Пароль:");
+    loginPasswordEdit = new QLineEdit();
+    loginPasswordEdit->setEchoMode(QLineEdit::Password);
+    
+    loginAttemptsLabel = new QLabel("Попыток осталось: 3");
+    loginAttemptsLabel->setStyleSheet("color: blue; font-weight: bold;");
+    
+    loginResultText = new QTextEdit();
+    loginResultText->setReadOnly(true);
+    loginResultText->setMaximumHeight(100);
+    
+    QPushButton* submitBtn = new QPushButton("Войти");
+    loginRecoverBtn = new QPushButton("Восстановить пароль");
+    loginRecoverBtn->setVisible(false);
+    QPushButton* backBtn = new QPushButton("Назад");
+    
+    connect(submitBtn, &QPushButton::clicked, this, &MainWindow::onLoginSubmitClicked);
+    connect(loginRecoverBtn, &QPushButton::clicked, this, &MainWindow::onLoginRecoverClicked);
+    connect(backBtn, &QPushButton::clicked, this, &MainWindow::onLoginBackClicked);
+    
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(backBtn);
+    btnLayout->addWidget(submitBtn);
+    
+    layout->addWidget(titleLabel);
+    layout->addSpacing(20);
+    layout->addWidget(usernameLabel);
+    layout->addWidget(loginUsernameEdit);
+    layout->addWidget(passwordLabel);
+    layout->addWidget(loginPasswordEdit);
+    layout->addWidget(loginAttemptsLabel);
+    layout->addSpacing(10);
+    layout->addWidget(loginResultText);
+    layout->addSpacing(10);
+    layout->addWidget(loginRecoverBtn);
+    layout->addLayout(btnLayout);
+    layout->addStretch();
+    
+    stackedWidget->addWidget(loginPage);
+}
+
+void MainWindow::createPasswordEvalPage()
+{
+    passwordEvalPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(passwordEvalPage);
+    layout->setContentsMargins(50, 30, 50, 30);
+    
+    QLabel* titleLabel = new QLabel("Оценка сложности пароля");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(18);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    
+    QLabel* passwordLabel = new QLabel("Введите пароль для оценки:");
+    evalPasswordEdit = new QLineEdit();
+    evalPasswordEdit->setEchoMode(QLineEdit::Normal);
+    
+    evalResultText = new QTextEdit();
+    evalResultText->setReadOnly(true);
+    
+    QPushButton* evalBtn = new QPushButton("Оценить");
+    QPushButton* backBtn = new QPushButton("Назад");
+    
+    connect(evalBtn, &QPushButton::clicked, this, &MainWindow::onEvaluateSubmitClicked);
+    connect(backBtn, &QPushButton::clicked, this, &MainWindow::onEvaluateBackClicked);
+    
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(backBtn);
+    btnLayout->addWidget(evalBtn);
+    
+    layout->addWidget(titleLabel);
+    layout->addSpacing(20);
+    layout->addWidget(passwordLabel);
+    layout->addWidget(evalPasswordEdit);
+    layout->addSpacing(10);
+    layout->addWidget(evalResultText);
+    layout->addSpacing(10);
+    layout->addLayout(btnLayout);
+    
+    stackedWidget->addWidget(passwordEvalPage);
+}
+
+void MainWindow::createRecoveryPage()
+{
+    recoveryPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(recoveryPage);
+    layout->setContentsMargins(50, 30, 50, 30);
+    
+    QLabel* titleLabel = new QLabel("Восстановление пароля");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(18);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    
+    QLabel* usernameLabel = new QLabel("Логин:");
+    recoveryUsernameEdit = new QLineEdit();
+    
+    QLabel* seedLabel = new QLabel("12 слов восстановления (через пробел):");
+    recoverySeedEdit = new QTextEdit();
+    recoverySeedEdit->setMaximumHeight(80);
+    
+    QLabel* passwordLabel = new QLabel("Новый пароль:");
+    recoveryPasswordEdit = new QLineEdit();
+    recoveryPasswordEdit->setEchoMode(QLineEdit::Password);
+    
+    recoveryResultText = new QTextEdit();
+    recoveryResultText->setReadOnly(true);
+    recoveryResultText->setMaximumHeight(100);
+    
+    QPushButton* submitBtn = new QPushButton("Восстановить");
+    QPushButton* backBtn = new QPushButton("Назад");
+    
+    connect(submitBtn, &QPushButton::clicked, this, &MainWindow::onRecoverySubmitClicked);
+    connect(backBtn, &QPushButton::clicked, this, &MainWindow::onRecoveryBackClicked);
+    
+    QHBoxLayout* btnLayout = new QHBoxLayout();
+    btnLayout->addWidget(backBtn);
+    btnLayout->addWidget(submitBtn);
+    
+    layout->addWidget(titleLabel);
+    layout->addSpacing(20);
+    layout->addWidget(usernameLabel);
+    layout->addWidget(recoveryUsernameEdit);
+    layout->addWidget(seedLabel);
+    layout->addWidget(recoverySeedEdit);
+    layout->addWidget(passwordLabel);
+    layout->addWidget(recoveryPasswordEdit);
+    layout->addSpacing(10);
+    layout->addWidget(recoveryResultText);
+    layout->addSpacing(10);
+    layout->addLayout(btnLayout);
+    
+    stackedWidget->addWidget(recoveryPage);
+}
+
+void MainWindow::createUserMenuPage()
+{
+    userMenuPage = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(userMenuPage);
+    layout->setContentsMargins(30, 30, 30, 30);
+    
+    QLabel* titleLabel = new QLabel("Меню пользователя");
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(18);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    
+    userEntriesText = new QTextEdit();
+    userEntriesText->setReadOnly(true);
+    
+    QPushButton* viewBtn = new QPushButton("Просмотреть записи");
+    QPushButton* addBtn = new QPushButton("Добавить запись");
+    QPushButton* syncToBtn = new QPushButton("Синхронизировать с сервером");
+    QPushButton* syncFromBtn = new QPushButton("Загрузить с сервера");
+    QPushButton* logoutBtn = new QPushButton("Выход");
+    
+    connect(viewBtn, &QPushButton::clicked, this, &MainWindow::onViewEntriesClicked);
+    connect(addBtn, &QPushButton::clicked, this, &MainWindow::onAddEntryClicked);
+    connect(syncToBtn, &QPushButton::clicked, this, &MainWindow::onSyncToServerClicked);
+    connect(syncFromBtn, &QPushButton::clicked, this, &MainWindow::onSyncFromServerClicked);
+    connect(logoutBtn, &QPushButton::clicked, this, &MainWindow::onLogoutClicked);
+    
+    QHBoxLayout* btnLayout1 = new QHBoxLayout();
+    btnLayout1->addWidget(viewBtn);
+    btnLayout1->addWidget(addBtn);
+    
+    QHBoxLayout* btnLayout2 = new QHBoxLayout();
+    btnLayout2->addWidget(syncToBtn);
+    btnLayout2->addWidget(syncFromBtn);
+    
+    layout->addWidget(titleLabel);
+    layout->addSpacing(20);
+    layout->addWidget(userEntriesText);
+    layout->addSpacing(10);
+    layout->addLayout(btnLayout1);
+    layout->addLayout(btnLayout2);
+    layout->addWidget(logoutBtn);
+    
+    stackedWidget->addWidget(userMenuPage);
+}
+
+void MainWindow::showMainMenu()
+{
+    stackedWidget->setCurrentWidget(mainMenuPage);
+}
+
+void MainWindow::showUserMenu()
+{
+    stackedWidget->setCurrentWidget(userMenuPage);
+    userEntriesText->clear();
+    userEntriesText->append("Вы успешно вошли в систему!\n");
+    userEntriesText->append("Используйте кнопки ниже для управления паролями.");
+}
+
+void MainWindow::onRegisterClicked()
+{
+    regUsernameEdit->clear();
+    regPasswordEdit->clear();
+    regResultText->clear();
+    stackedWidget->setCurrentWidget(registerPage);
+}
+
+void MainWindow::onLoginClicked()
+{
+    loginUsernameEdit->clear();
+    loginPasswordEdit->clear();
+    loginResultText->clear();
+    loginAttempts = 0;
+    loginAttemptsLabel->setText("Попыток осталось: 3");
+    loginRecoverBtn->setVisible(false);
+    stackedWidget->setCurrentWidget(loginPage);
+}
+
+void MainWindow::onPasswordEvalClicked()
+{
+    evalPasswordEdit->clear();
+    evalResultText->clear();
+    stackedWidget->setCurrentWidget(passwordEvalPage);
+}
+
+void MainWindow::onRecoverPasswordClicked()
+{
+    recoveryUsernameEdit->clear();
+    recoverySeedEdit->clear();
+    recoveryPasswordEdit->clear();
+    recoveryResultText->clear();
+    stackedWidget->setCurrentWidget(recoveryPage);
+}
+
+void MainWindow::onRegisterSubmitClicked()
+{
+    QString username = regUsernameEdit->text().trimmed();
+    QString password = regPasswordEdit->text();
+    
+    if (username.isEmpty() || password.isEmpty()) {
+        regResultText->setText("⚠️ Пожалуйста, заполните все поля!");
+        return;
+    }
+    
+    // Check if user exists
+    if (client->checkUserExists(username.toStdString())) {
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::question(this, "Пользователь существует",
+            "⚠️ Пользователь с таким логином уже существует!\n\nХотите войти в существующий аккаунт?",
+            QMessageBox::Yes | QMessageBox::No);
+        
+        if (reply == QMessageBox::Yes) {
+            // Switch to login page with this username
+            loginUsernameEdit->setText(username);
+            onLoginClicked();
+        }
+        return;
+    }
+    
+    // Validate password
+    std::string errorMessage;
+    if (!validatePassword(password.toStdString(), errorMessage)) {
+        regResultText->setText(QString("⚠️ ОШИБКА: %1").arg(QString::fromStdString(errorMessage)));
+        return;
+    }
+    
+    // Check for weak password
+    if (isWeakPassword(password.toStdString())) {
+        regResultText->setText("⚠️ ОШИБКА: Пароль слишком распространенный!\n"
+                              "Пожалуйста, выберите более безопасный пароль.");
+        return;
+    }
+    
+    // Register user
+    if (client->registerUser(username.toStdString(), password.toStdString())) {
+        regResultText->setText("✓ Регистрация успешна!\n"
+                              "Ваши слова для восстановления пароля были показаны в консоли.\n"
+                              "Обязательно сохраните их в безопасном месте!");
+        regPasswordEdit->clear();
+    } else {
+        regResultText->setText("⚠️ Ошибка регистрации. Попробуйте снова.");
+    }
+}
+
+void MainWindow::onRegisterBackClicked()
+{
+    showMainMenu();
+}
+
+void MainWindow::onLoginSubmitClicked()
+{
+    QString username = loginUsernameEdit->text().trimmed();
+    QString password = loginPasswordEdit->text();
+    
+    if (username.isEmpty() || password.isEmpty()) {
+        loginResultText->setText("⚠️ Пожалуйста, заполните все поля!");
+        return;
+    }
+    
+    currentLoginUsername = username;
+    performLogin(username, password);
+}
+
+void MainWindow::performLogin(const QString& username, const QString& password)
+{
+    if (attemptLogin(username, password)) {
+        loginResultText->setText("✓ Вход выполнен успешно!");
+        loginPasswordEdit->clear();
+        
+        // Load data from server
+        client->syncFromServer();
+        
+        // Show user menu after short delay
+        QTimer::singleShot(500, this, &MainWindow::showUserMenu);
+    } else {
+        loginAttempts++;
+        int remaining = 3 - loginAttempts;
+        
+        if (remaining > 0) {
+            loginAttemptsLabel->setText(QString("Попыток осталось: %1").arg(remaining));
+            loginResultText->setText(QString("⚠️ Неверный пароль. Осталось попыток: %1").arg(remaining));
+            loginPasswordEdit->clear();
+            loginPasswordEdit->setFocus();
+        } else {
+            loginAttemptsLabel->setText("Попыток осталось: 0");
+            loginAttemptsLabel->setStyleSheet("color: red; font-weight: bold;");
+            loginResultText->setText("⚠️ Исчерпаны все попытки входа!\n"
+                                    "Нажмите 'Восстановить пароль' чтобы сбросить пароль.");
+            loginRecoverBtn->setVisible(true);
+            loginPasswordEdit->setEnabled(false);
+        }
+    }
+}
+
+bool MainWindow::attemptLogin(const QString& username, const QString& password)
+{
+    return client->login(username.toStdString(), password.toStdString());
+}
+
+void MainWindow::onLoginBackClicked()
+{
+    loginPasswordEdit->setEnabled(true);
+    showMainMenu();
+}
+
+void MainWindow::onLoginRecoverClicked()
+{
+    recoveryUsernameEdit->setText(currentLoginUsername);
+    stackedWidget->setCurrentWidget(recoveryPage);
+}
+
+void MainWindow::onEvaluateSubmitClicked()
+{
+    QString password = evalPasswordEdit->text();
+    
+    if (password.isEmpty()) {
+        evalResultText->setText("⚠️ Введите пароль для оценки!");
+        return;
+    }
+    
+    int strength = evaluatePasswordStrength(password.toStdString());
+    std::string description = getPasswordStrengthDescription(strength);
+    std::string timeToCrack = estimateTimeToCrack(password.toStdString());
+    
+    QString result = QString("=== Оценка сложности пароля ===\n\n");
+    result += QString("Пароль: %1\n").arg(password);
+    result += QString("Оценка: %1/100\n").arg(strength);
+    result += QString("Уровень: %1\n").arg(QString::fromStdString(description));
+    result += QString("Время взлома (брутфорс): ~%1\n").arg(QString::fromStdString(timeToCrack));
+    
+    if (isWeakPassword(password.toStdString())) {
+        result += "\n⚠️ ВНИМАНИЕ: Этот пароль найден в списке распространенных паролей!\n";
+        result += "Настоятельно рекомендуется использовать другой пароль.";
+    }
+    
+    evalResultText->setText(result);
+}
+
+void MainWindow::onEvaluateBackClicked()
+{
+    showMainMenu();
+}
+
+void MainWindow::onRecoverySubmitClicked()
+{
+    QString username = recoveryUsernameEdit->text().trimmed();
+    QString seedPhrase = recoverySeedEdit->toPlainText().trimmed();
+    QString newPassword = recoveryPasswordEdit->text();
+    
+    if (username.isEmpty() || seedPhrase.isEmpty() || newPassword.isEmpty()) {
+        recoveryResultText->setText("⚠️ Пожалуйста, заполните все поля!");
+        return;
+    }
+    
+    // Validate password
+    std::string errorMessage;
+    if (!validatePassword(newPassword.toStdString(), errorMessage)) {
+        recoveryResultText->setText(QString("⚠️ ОШИБКА: %1").arg(QString::fromStdString(errorMessage)));
+        return;
+    }
+    
+    // Check for weak password
+    if (isWeakPassword(newPassword.toStdString())) {
+        recoveryResultText->setText("⚠️ ОШИБКА: Пароль слишком распространенный!\n"
+                                   "Пожалуйста, выберите более безопасный пароль.");
+        return;
+    }
+    
+    if (client->recoverPassword(username.toStdString(), seedPhrase.toStdString(), 
+                                newPassword.toStdString())) {
+        recoveryResultText->setText("✓ Пароль успешно восстановлен!\n"
+                                   "Теперь вы можете войти с новым паролем.");
+        recoveryPasswordEdit->clear();
+        recoverySeedEdit->clear();
+    } else {
+        recoveryResultText->setText("⚠️ Не удалось восстановить пароль.\n"
+                                   "Проверьте правильность кодовых слов.");
+    }
+}
+
+void MainWindow::onRecoveryBackClicked()
+{
+    showMainMenu();
+}
+
+void MainWindow::onViewEntriesClicked()
+{
+    userEntriesText->clear();
+    userEntriesText->append("=== Ваши записи ===\n");
+    
+    // Display entries would go here
+    // For now, show a message
+    userEntriesText->append("Записи будут отображаться здесь после синхронизации с сервером.");
+}
+
+void MainWindow::onAddEntryClicked()
+{
+    QMessageBox::information(this, "Добавить запись", 
+        "Функция добавления записи будет доступна в следующей версии.");
+}
+
+void MainWindow::onSyncToServerClicked()
+{
+    if (client->syncToServer()) {
+        QMessageBox::information(this, "Синхронизация", 
+            "✓ Данные успешно синхронизированы с сервером!");
+    } else {
+        QMessageBox::warning(this, "Ошибка", 
+            "⚠️ Не удалось синхронизировать данные с сервером.");
+    }
+}
+
+void MainWindow::onSyncFromServerClicked()
+{
+    if (client->syncFromServer()) {
+        QMessageBox::information(this, "Загрузка", 
+            "✓ Данные успешно загружены с сервера!");
+        onViewEntriesClicked();
+    } else {
+        QMessageBox::warning(this, "Ошибка", 
+            "⚠️ Не удалось загрузить данные с сервера.");
+    }
+}
+
+void MainWindow::onLogoutClicked()
+{
+    client->logout();
+    QMessageBox::information(this, "Выход", "Вы вышли из системы.");
+    showMainMenu();
+}
